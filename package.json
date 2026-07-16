@@ -1,0 +1,189 @@
+{
+  "name": "vscode-lyrics-display",
+  "displayName": "歌词显示",
+  "description": "基于 Windows SMTC 的歌词显示插件，支持多平台歌词源",
+  "version": "0.1.0",
+  "publisher": "blokki",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "歌词显示",
+      "properties": {
+        "lyrics.source": {
+          "type": "string",
+          "enum": ["online", "local", "both"],
+          "default": "online",
+          "description": "歌词来源"
+        },
+        "lyrics.onlineProvider": {
+          "type": "string",
+          "enum": ["lrclib", "netease", "qqmusic"],
+          "default": "netease",
+          "description": "在线歌词 API：LRCLIB（免费） / 网易云音乐 / QQ音乐"
+        },
+        "lyrics.neteaseApiUrl": {
+          "type": "string",
+          "default": "",
+          "description": "网易云 API 代理地址（可选）"
+        },
+        "lyrics.qqMusicApiUrl": {
+          "type": "string",
+          "default": "",
+          "description": "QQ音乐 API 代理地址（可选）"
+        },
+        "lyrics.localPath": {
+          "type": "string",
+          "default": "",
+          "description": "本地 .lrc 歌词目录"
+        },
+        "lyrics.enableTranslation": {
+          "type": "boolean",
+          "default": true,
+          "description": "显示外语歌词翻译"
+        },
+        "lyrics.enableTransliteration": {
+          "type": "boolean",
+          "default": true,
+          "description": "显示外语歌词音译（罗马音/拼音）"
+        },
+        "lyrics.pollingInterval": {
+          "type": "number",
+          "default": 500,
+          "minimum": 200,
+          "maximum": 2000,
+          "description": "SMTC 检测间隔（毫秒，长驻进程内部间隔）"
+        },
+        "lyrics.panelPosition": {
+          "type": "string",
+          "enum": ["beside", "active", "bottom"],
+          "default": "beside",
+          "enumDescriptions": ["侧边", "当前编辑器列", "底部面板"],
+          "description": "歌词面板默认位置"
+        },
+        "lyrics.style.activeFontSize": {
+          "type": "number",
+          "default": 20,
+          "minimum": 12,
+          "maximum": 48,
+          "description": "当前句歌词字号（px）"
+        },
+        "lyrics.style.normalFontSize": {
+          "type": "number",
+          "default": 14,
+          "minimum": 10,
+          "maximum": 36,
+          "description": "非当前句歌词字号（px）"
+        },
+        "lyrics.style.activeFontWeight": {
+          "type": "string",
+          "enum": ["400", "500", "600", "700"],
+          "default": "500",
+          "description": "当前句字重：400(常规) / 500(中等) / 600(半粗) / 700(粗体)"
+        },
+        "lyrics.style.activeLineColor": {
+          "type": "string",
+          "default": "",
+          "description": "当前句文字颜色（CSS值，留空使用主题色）"
+        },
+        "lyrics.style.normalLineColor": {
+          "type": "string",
+          "default": "",
+          "description": "非当前句文字颜色（留空使用主题色）"
+        },
+        "lyrics.style.inactiveOpacity": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0.1,
+          "maximum": 1.0,
+          "description": "非当前句歌词透明度（0.1~1.0）"
+        },
+        "lyrics.style.translationFontSize": {
+          "type": "number",
+          "default": 12,
+          "minimum": 8,
+          "maximum": 24,
+          "description": "翻译文字字号（px）"
+        },
+        "lyrics.style.translationColor": {
+          "type": "string",
+          "default": "",
+          "description": "翻译文字颜色（留空使用主题描述色）"
+        },
+        "lyrics.style.transliterationFontSize": {
+          "type": "number",
+          "default": 12,
+          "minimum": 8,
+          "maximum": 24,
+          "description": "音译文字字号（px）"
+        },
+        "lyrics.style.transliterationColor": {
+          "type": "string",
+          "default": "",
+          "description": "音译文字颜色（留空使用主题描述色）"
+        },
+        "lyrics.style.transliterationItalic": {
+          "type": "boolean",
+          "default": true,
+          "description": "音译文字是否使用斜体"
+        },
+        "lyrics.style.lineSpacing": {
+          "type": "number",
+          "default": 4,
+          "minimum": 0,
+          "maximum": 20,
+          "description": "歌词行间距（px）"
+        },
+        "lyrics.style.transitionDuration": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "当前句切换过渡动画时长（毫秒）"
+        },
+        "lyrics.style.backgroundColor": {
+          "type": "string",
+          "default": "",
+          "description": "面板背景色（留空使用编辑器背景色）"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "lyrics.showPanel",
+        "title": "歌词：显示歌词面板"
+      },
+      {
+        "command": "lyrics.refresh",
+        "title": "歌词：刷新当前歌词"
+      },
+      {
+        "command": "lyrics.toggleTranslation",
+        "title": "歌词：切换翻译显示"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.config.mjs --production",
+    "watch": "node esbuild.config.mjs --watch",
+    "lint": "eslint src --ext .ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "esbuild": "^0.20.0",
+    "@vscode/vsce": "^2.0.0"
+  }
+}
