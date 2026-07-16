@@ -42,6 +42,11 @@ export class LyricsPanel {
       this.panel = null;
     });
 
+    // 显示等待状态（在检测到曲目之前）
+    if (!this.currentTrack) {
+      this.panel.webview.html = this.buildWaitingHtml();
+    }
+
     // 监听样式配置变更 → 实时刷新
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('lyrics.style') && this.panel && this.currentTrack) {
@@ -224,6 +229,39 @@ export class LyricsPanel {
         ${transLines[i] ? `<p class="translation">${this.escapeHtml(transLines[i])}</p>` : ''}
       </div>`;
     }).join('\n');
+  }
+
+  /** 构建等待状态 HTML */
+  private buildWaitingHtml(): string {
+    const style = getStyleConfig();
+    return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: var(--vscode-editor-font-family, 'Microsoft YaHei', sans-serif);
+      background: ${style.backgroundColor || 'var(--vscode-editor-background)'};
+      color: var(--vscode-foreground);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .waiting { text-align: center; color: var(--vscode-descriptionForeground); }
+    .waiting .icon { font-size: 48px; margin-bottom: 16px; }
+    .waiting p { margin: 4px 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="waiting">
+    <div class="icon">🎵</div>
+    <p>等待播放音乐...</p>
+    <p style="font-size:12px">打开任意音乐播放器开始播放</p>
+  </div>
+</body>
+</html>`;
   }
 
   /** HTML 转义 */
