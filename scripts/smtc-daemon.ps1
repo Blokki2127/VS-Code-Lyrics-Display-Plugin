@@ -1,103 +1,73 @@
-# SMTC 长驻监控脚本
-# 持续运行，仅在媒体状态变化时通过 stdout 输出 JSON
-# 要求: powershell.exe (v5.1) - 有 WinRT 内建投影
-# pwsh.exe (v7+) 不支持此脚本
-
+# SMTC 长驻监控 - 持续运行，变化时输出 JSON 到 stdout
 $ErrorActionPreference = "Continue"
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-# WinRT 异步辅助方法
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$asTask = ([System.RuntimeWindowsRuntimeExtensions].GetMethods() | Where-Object {
+$asTaskM = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
     $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
     $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
-})[0]
+} | Select-Object -First 1
 
-Function Await($WinRtTask, $ResultType) {
+function Await($op, $type) {
     try {
-        return $asTask.MakeGenericMethod($ResultType).Invoke($null, @($WinRtTask)).Result
-    }
-    catch {
-        return $null
-    }
+        $m = $asTaskM.MakeGenericMethod($type)
+        $task = $m.Invoke($null, @($op))
+        return $task.GetType().GetProperty('Result').GetValue($task)
+    } catch { return $null }
 }
 
-# 加载 WinRT 类型（只加载一次）
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 
 $lastHash = ""
-$lastPosition = -1
-$pollInterval = 500
-
-# 从命令行参数读取轮询间隔
-if ($args.Count -gt 0) {
-    $val = [int]$args[0]
-    if ($val -ge 200 -and $val -le 2000) {
-        $pollInterval = $val
-    }
-}
+$lastPos = -1
+$interval = 500
+if ($args.Count -gt 0) { $v = [int]$args[0]; if ($v -ge 200 -and $v -le 2000) { $interval = $v } }
 
 while ($true) {
     try {
-        $manager = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) `
-                        ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
-
-        if ($null -eq $manager) {
+        $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) `
+                     ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+        if ($null -eq $mgr) {
             if ($lastHash -ne "none") {
-                Write-Output '{"type":"no_media"}'
+                [Console]::WriteLine('{"type":"no_media"}')
                 $lastHash = "none"
             }
-            Start-Sleep -Milliseconds $pollInterval
-            continue
+            Start-Sleep -Milliseconds $interval; continue
         }
-
-        $session = $manager.GetCurrentSession()
-
-        if ($null -eq $session) {
+        $sess = $mgr.GetCurrentSession()
+        if ($null -eq $sess) {
             if ($lastHash -ne "none") {
-                Write-Output '{"type":"no_media"}'
+                [Console]::WriteLine('{"type":"no_media"}')
                 $lastHash = "none"
             }
-            Start-Sleep -Milliseconds $pollInterval
-            continue
+            Start-Sleep -Milliseconds $interval; continue
         }
+        $prop = Await ($sess.TryGetMediaPropertiesAsync()) `
+                      ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+        if ($null -eq $prop) { Start-Sleep -Milliseconds $interval; continue }
+        $pb = $sess.GetPlaybackInfo()
+        $tm = $null
+        try { $tm = $sess.GetTimelineProperties() } catch {}
 
-        $mediaProps = Await ($session.TryGetMediaPropertiesAsync()) `
-                           ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-        $playback = $session.GetPlaybackInfo()
-        $timeline = $session.GetTimelineProperties()
+        $a = if ($prop.Artist) { $prop.Artist } else { "" }
+        $t = if ($prop.Title) { $prop.Title } else { "" }
+        $al = if ($prop.AlbumTitle) { $prop.AlbumTitle } else { "" }
+        $st = $pb.PlaybackStatus.ToString()
+        $src = if ($sess.SourceAppUserModelId) { $sess.SourceAppUserModelId } else { "" }
+        $pos = if ($tm) { [int]$tm.Position.TotalSeconds } else { 0 }
+        $dur = if ($tm) { [int]$tm.EndTime.TotalSeconds } else { 0 }
 
-        if ($null -eq $mediaProps) {
-            Start-Sleep -Milliseconds $pollInterval
-            continue
-        }
-
-        $artist = ($mediaProps.Artist -replace '"', '\"')
-        $title  = ($mediaProps.Title  -replace '"', '\"')
-        $album  = ($mediaProps.AlbumTitle -replace '"', '\"')
-        $status = $playback.PlaybackStatus.ToString()
-        $pos    = [int]$timeline.Position.TotalSeconds
-        $dur    = [int]$timeline.EndTime.TotalSeconds
-        $source = $session.SourceAppUserModelId
-
-        # 用 hash 检测曲目/状态变化
-        $newHash = "$artist|$title|$album|$status|$source"
-
+        $newHash = "$a|$t|$al|$st|$src"
         if ($newHash -ne $lastHash) {
-            $json = "{`"type`":`"track`",`"artist`":`"$artist`",`"title`":`"$title`",`"album`":`"$album`",`"status`":`"$status`",`"position`":$pos,`"duration`":$dur,`"source`":`"$source`"}"
-            Write-Output $json
+            $json = "{`"type`":`"track`",`"artist`":`"" + ($a -replace '"','\"' -replace '\\','\\') + "`",`"title`":`"" + ($t -replace '"','\"' -replace '\\','\\') + "`",`"album`":`"" + ($al -replace '"','\"' -replace '\\','\\') + "`",`"status`":`"$st`",`"position`":$pos,`"duration`":$dur,`"source`":`"" + ($src -replace '"','\"' -replace '\\','\\') + "`"}"
+            [Console]::WriteLine($json)
             $lastHash = $newHash
-            $lastPosition = $pos
+            $lastPos = $pos
         }
-        # 曲目没变但播放位置变了 → 输出位置更新
-        elseif ($status -eq "Playing" -and [Math]::Abs($pos - $lastPosition) -ge 2) {
-            Write-Output "{`"type`":`"position`",`"position`":$pos}"
-            $lastPosition = $pos
+        elseif ($st -eq "Playing" -and [Math]::Abs($pos - $lastPos) -ge 2) {
+            [Console]::WriteLine("{`"type`":`"position`",`"position`":$pos}")
+            $lastPos = $pos
         }
-    }
-    catch {
-        # 静默处理异常，避免刷屏
-    }
-
-    Start-Sleep -Milliseconds $pollInterval
+    } catch {}
+    Start-Sleep -Milliseconds $interval
 }
