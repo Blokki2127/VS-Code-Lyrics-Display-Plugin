@@ -1,6 +1,11 @@
 # SMTC 长驻监控 - 持续运行，变化时输出 JSON 到 stdout
 $ErrorActionPreference = "Continue"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$stdout = [Console]::Out
+
+# 启动信号
+$stdout.WriteLine('{"type":"started"}')
+$stdout.Flush()
 
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $asTaskM = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
@@ -29,7 +34,8 @@ while ($true) {
                      ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
         if ($null -eq $mgr) {
             if ($lastHash -ne "none") {
-                [Console]::WriteLine('{"type":"no_media"}')
+                $stdout.WriteLine('{"type":"no_media"}')
+                $stdout.Flush()
                 $lastHash = "none"
             }
             Start-Sleep -Milliseconds $interval; continue
@@ -37,7 +43,8 @@ while ($true) {
         $sess = $mgr.GetCurrentSession()
         if ($null -eq $sess) {
             if ($lastHash -ne "none") {
-                [Console]::WriteLine('{"type":"no_media"}')
+                $stdout.WriteLine('{"type":"no_media"}')
+                $stdout.Flush()
                 $lastHash = "none"
             }
             Start-Sleep -Milliseconds $interval; continue
@@ -60,12 +67,14 @@ while ($true) {
         $newHash = "$a|$t|$al|$st|$src"
         if ($newHash -ne $lastHash) {
             $json = "{`"type`":`"track`",`"artist`":`"" + ($a -replace '"','\"' -replace '\\','\\') + "`",`"title`":`"" + ($t -replace '"','\"' -replace '\\','\\') + "`",`"album`":`"" + ($al -replace '"','\"' -replace '\\','\\') + "`",`"status`":`"$st`",`"position`":$pos,`"duration`":$dur,`"source`":`"" + ($src -replace '"','\"' -replace '\\','\\') + "`"}"
-            [Console]::WriteLine($json)
+            $stdout.WriteLine($json)
+            $stdout.Flush()
             $lastHash = $newHash
             $lastPos = $pos
         }
         elseif ($st -eq "Playing" -and [Math]::Abs($pos - $lastPos) -ge 2) {
-            [Console]::WriteLine("{`"type`":`"position`",`"position`":$pos}")
+            $stdout.WriteLine("{`"type`":`"position`",`"position`":$pos}")
+            $stdout.Flush()
             $lastPos = $pos
         }
     } catch {}
