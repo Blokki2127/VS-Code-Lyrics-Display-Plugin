@@ -90,7 +90,7 @@ export class LyricsFetcher {
       const result = await netease.searchWithTranslation(track);
       if (result) {
         const trans = result.tlyric
-          ? (isLrcFormat(result.tlyric) ? stripLyricTimestamps(result.tlyric) : result.tlyric)
+          ? stripLyricTimestamps(result.tlyric)
           : undefined;
         return { rawLyrics: result.lyrics, translation: trans, providerName: netease.name };
       }
