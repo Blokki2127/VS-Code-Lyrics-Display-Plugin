@@ -56,11 +56,21 @@ export class LyricsFetcher {
       }
     }
 
-    // 4. 降级：如果首选失败且还有别的在线源，尝试 LRCLIB
-    if (!rawLyrics && source === 'online') {
-      const fallbackProvider = this.providers.get('lrclib')!;
-      rawLyrics = await fallbackProvider.search(track);
-      if (rawLyrics) providerName = fallbackProvider.name;
+    // 4. 降级：首选失败 → 逐一尝试其他在线源
+    if (!rawLyrics) {
+      const fallbackOrder = ['qqmusic', 'lrclib', 'netease'];
+      for (const name of fallbackOrder) {
+        if (name === getConfig<string>('lyrics.onlineProvider', 'qqmusic')) continue; // 跳过已试的首选
+        const fb = this.providers.get(name);
+        if (fb) {
+          rawLyrics = await fb.search(track);
+          if (rawLyrics) {
+            providerName = fb.name;
+            logInfo(`降级到 ${fb.name} 成功`);
+            break;
+          }
+        }
+      }
     }
 
     if (!rawLyrics) {
