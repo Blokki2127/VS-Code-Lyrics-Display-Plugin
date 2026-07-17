@@ -18,19 +18,19 @@
 ```
 ┌────────────────────────────────────────────────────────────┐
 │                      extension.ts                          │
-│                    (入口 + 编排)                            │
+│                      (入口 + 编排)                          │
 ├──────────────┬────────────────────────────┬────────────────┤
-│   检测层      │        歌词层               │    显示层      │
-│              │                            │               │
-│ smtcReader   │  lyricsFetcher             │  lyricsPanel  │
-│   (SMTC)     │   ├─ NeteaseProvider        │   (Webview)   │
-│              │   ├─ QQMusicProvider        │               │
-│ elogReader   │   ├─ LrclibProvider         │  statusBar    │
-│   (Elog)     │   └─ LocalProvider          │   (状态栏)    │
-│              │                            │               │
-│              │  translator                │               │
-│              │   └─ transliterator         │               │
-└──────────────┴────────────────────────────┴───────────────┘
+│    检测层     │        歌词层              │    显示层       │
+│              │                            │                │
+│ smtcReader   │  lyricsFetcher             │   lyricsPanel  │
+│   (SMTC)     │   ├─ NeteaseProvider       │    (Webview)   │
+│              │   ├─ QQMusicProvider       │                │
+│ elogReader   │   ├─ LrclibProvider        │   statusBar    │
+│   (Elog)     │   └─ LocalProvider         │    (状态栏)     │
+│              │                            │                │
+│              │  translator                │                │
+│              │   └─ transliterator        │                │
+└──────────────┴────────────────────────────┴────────────────┘
 ```
 
 ---

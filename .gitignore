@@ -1,4 +1,8 @@
+# ===== 构建 =====
 node_modules/
 dist/
 out/
 *.vsix
+
+# ===== ClaudeCode 项目数据 =====
+CLAUDE.md

@@ -50,17 +50,28 @@ export class LyricsFetcher {
 
     // 3. 在线查找（如配置 online 或 both）
     if (!rawLyrics && (source === 'online' || source === 'both')) {
-      const onlineProviderName = getConfig<string>('lyrics.onlineProvider', 'netease');
-      ({ rawLyrics, translation, providerName } = await this.tryProvider(onlineProviderName, track));
-    }
+      // 优先匹配当前播放器
+      const preferred = this.detectPreferredProvider(track.sourceApp);
+      const configured = getConfig<string>('lyrics.onlineProvider', 'netease');
 
-    // 4. 降级：首选失败 → 逐一尝试其他在线源
-    if (!rawLyrics) {
-      const fallbackOrder = ['qqmusic', 'lrclib', 'netease'];
-      for (const name of fallbackOrder) {
-        if (name === getConfig<string>('lyrics.onlineProvider', 'netease')) continue;
-        ({ rawLyrics, translation, providerName } = await this.tryProvider(name, track));
-        if (rawLyrics) break;
+      // 先试播放器匹配的源
+      if (preferred && preferred !== configured) {
+        ({ rawLyrics, translation, providerName } = await this.tryProvider(preferred, track));
+      }
+
+      // 再试用户配置的源
+      if (!rawLyrics) {
+        ({ rawLyrics, translation, providerName } = await this.tryProvider(configured, track));
+      }
+
+      // 降级：逐一尝试其余在线源
+      if (!rawLyrics) {
+        const fallbackOrder = ['qqmusic', 'lrclib', 'netease'];
+        for (const name of fallbackOrder) {
+          if (name === preferred || name === configured) continue; // 已试过
+          ({ rawLyrics, translation, providerName } = await this.tryProvider(name, track));
+          if (rawLyrics) break;
+        }
       }
     }
 
@@ -99,6 +110,14 @@ export class LyricsFetcher {
 
     const raw = await provider.search(track);
     return { rawLyrics: raw, providerName: raw ? provider.name : 'none' };
+  }
+
+  /** 根据播放器来源匹配最佳歌词提供器 */
+  private detectPreferredProvider(sourceApp: string): string | null {
+    const app = sourceApp?.toLowerCase() || '';
+    if (app.includes('cloudmusic') || app.includes('netease')) return 'netease';
+    if (app.includes('qqmusic') || app.includes('qq')) return 'qqmusic';
+    return null; // 无法识别播放器
   }
 
   /** 清除缓存 */
