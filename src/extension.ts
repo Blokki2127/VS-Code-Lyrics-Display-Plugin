@@ -24,20 +24,19 @@ export function activate(context: vscode.ExtensionContext) {
   const lyricsPanel = new LyricsPanel();
   const statusBar = new StatusBarDisplay();
 
-  // 当前曲目标识 + 是否使用 elog 精确位置
   let currentTrackId = '';
-  let useElogPosition = false; // elog 提供精确位置时为 true
+  let isNetease = false;  // 当前播放器是网易云 → 使用 elog 位置
 
-  // 用户点击歌词行 → 同步
-  lyricsPanel.onSeek((position: number) => {
-    logInfo(`手动同步到 ${position.toFixed(1)}s`);
-  });
-
-  // ── 共用曲目处理 ──
-  async function handleTrackChange(track: TrackInfo | ElogTrackInfo): Promise<void> {
+  // ── 共用：曲目变化处理 ──
+  async function handleTrackChange(track: TrackInfo): Promise<void> {
     const trackId = `${track.artist}|${track.title}`;
+    if (trackId === currentTrackId) return; // 同一首歌，跳过
     currentTrackId = trackId;
-    logInfo(`曲目变化: ${track.artist} - ${track.title} [${track.sourceApp}]`);
+
+    // 检测是否网易云
+    isNetease = track.sourceApp?.toLowerCase().includes('cloudmusic');
+
+    logInfo(`曲目变化: ${track.artist} - ${track.title} [${track.sourceApp}]${isNetease ? ' (Elog)' : ''}`);
 
     statusBar.update(track);
     lyricsPanel.createOrShow();
@@ -56,14 +55,33 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // ── NetEase elog 事件（精确位置）──
+  // ── SMTC：主要切歌检测（可靠，始终有 artist + title）──
+  smtcReader.on('trackChange', async (track: TrackInfo) => {
+    await handleTrackChange(track);
+  });
+
+  // SMTC 位置（非网易云时使用）
+  smtcReader.on('positionChange', (position: number) => {
+    if (!isNetease) {
+      lyricsPanel.updatePosition(position);
+    }
+  });
+
+  smtcReader.on('noMedia', () => {
+    currentTrackId = '';
+    isNetease = false;
+    statusBar.update(null);
+  });
+
+  // ── Elog：仅提供精确位置（不负责切歌检测）──
   elogReader.on('trackChange', (track: ElogTrackInfo) => {
-    useElogPosition = true;
-    handleTrackChange(track);
+    // Elog 也检测到切歌 → 同步 isNetease，但不重复 handleTrackChange
+    // 因为 SMTC 已经会触发 handleTrackChange
+    isNetease = true;
   });
 
   elogReader.on('position', (position: number) => {
-    if (useElogPosition) {
+    if (isNetease) {
       lyricsPanel.updatePosition(position);
     }
   });
@@ -72,29 +90,9 @@ export function activate(context: vscode.ExtensionContext) {
     logInfo(`Elog 播放状态: ${playing ? '播放' : '暂停'}`);
   });
 
-  // ── SMTC 事件（降级/补充）──
-  smtcReader.on('trackChange', async (track: TrackInfo) => {
-    // 如果 elog 已接管（网易云），跳过 SMTC 的 track info
-    if (useElogPosition && track.sourceApp?.includes('cloudmusic')) {
-      return;
-    }
-    useElogPosition = false;
-    await handleTrackChange(track);
-  });
-
-  smtcReader.on('positionChange', (position: number) => {
-    if (!useElogPosition) {
-      lyricsPanel.updatePosition(position);
-    }
-  });
-
-  smtcReader.on('noMedia', () => {
-    statusBar.update(null);
-  });
-
   // ── 启动 ──
-  elogReader.start();
   smtcReader.start();
+  elogReader.start();
   lyricsPanel.createOrShow();
 
   // ── 注册命令 ──
