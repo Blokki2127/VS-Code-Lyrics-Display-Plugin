@@ -1,21 +1,29 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as https from 'https';
 import { EventEmitter } from 'events';
 
 export interface ElogTrackInfo {
   artist: string;
   title: string;
   album: string;
-  duration: number;   // seconds
-  position: number;    // seconds
+  duration: number;
+  position: number;
   isPlaying: boolean;
   sourceApp: string;
 }
 
+interface TrackCache {
+  name: string;
+  artists: string;
+  album: string;
+  duration: number;
+}
+
 /**
  * 网易云 elog 事件读取器
- * 监控 cloudmusic.elog 文件，实时解析播放事件
+ * 监控 cloudmusic.elog，实时解析播放事件（含精确位置）
  * 参考：MyLifeTracker/StalinDev54
  */
 export class NeteaseElogReader extends EventEmitter {
@@ -23,16 +31,18 @@ export class NeteaseElogReader extends EventEmitter {
   private fileSize = 0;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
 
-  // 播放状态追踪
+  // 播放状态
   private currentSongId = -1;
   private currentTrackName = '';
   private currentArtist = '';
   private currentAlbum = '';
   private currentDuration = 0;
   private isPlaying = false;
-  private lastPosition = 0;           // 暂停时的位置
-  private relativeTime = 0;           // Date.now() - position*1000（播放中）
-  private lastEventTime = 0;          // 上次事件的时间戳
+  private lastPosition = 0;
+  private relativeTime = 0;
+
+  // songId → track info 缓存（从 privilege/playlist 事件预填）
+  private trackCache = new Map<number, TrackCache>();
 
   constructor() {
     super();
@@ -42,7 +52,6 @@ export class NeteaseElogReader extends EventEmitter {
     );
   }
 
-  /** 获取当前播放位置 */
   get position(): number {
     if (this.isPlaying) {
       return Math.min(
@@ -53,7 +62,6 @@ export class NeteaseElogReader extends EventEmitter {
     return this.lastPosition;
   }
 
-  /** 获取当前曲目信息 */
   get trackInfo(): ElogTrackInfo | null {
     if (this.currentSongId === -1) return null;
     return {
@@ -67,7 +75,6 @@ export class NeteaseElogReader extends EventEmitter {
     };
   }
 
-  /** 启动监控 */
   start(): void {
     try {
       if (!fs.existsSync(this.filePath)) {
@@ -75,41 +82,28 @@ export class NeteaseElogReader extends EventEmitter {
         return;
       }
 
-      // 读取初始内容以获取当前状态
       const buffer = fs.readFileSync(this.filePath);
       const decoded = this.decode(buffer);
       const lines = decoded.split('\n');
 
-      // 从日志中恢复播放状态（倒序分析最近的事件）
       this.recoverState(lines);
-
       this.fileSize = buffer.length;
-
-      // 每 500ms 检查文件变化
       this.watchTimer = setInterval(() => this.poll(), 500);
 
-      console.log('[Elog] Started monitoring, songId:', this.currentSongId);
+      console.log('[Elog] Started, songId:', this.currentSongId, 'track:', this.currentTrackName);
     } catch (err) {
       console.error('[Elog] Start error:', err);
     }
   }
 
-  /** 停止监控 */
   stop(): void {
-    if (this.watchTimer) {
-      clearInterval(this.watchTimer);
-      this.watchTimer = null;
-    }
+    if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
   }
 
-  /** 轮询检查新日志 */
   private poll(): void {
     try {
       const stats = fs.statSync(this.filePath);
-
-      if (stats.size < this.fileSize) {
-        this.fileSize = 0;
-      }
+      if (stats.size < this.fileSize) { this.fileSize = 0; }
 
       if (stats.size > this.fileSize) {
         const fd = fs.openSync(this.filePath, 'r');
@@ -119,105 +113,55 @@ export class NeteaseElogReader extends EventEmitter {
         this.fileSize = stats.size;
 
         const decoded = this.decode(new Uint8Array(buf));
-        const lines = decoded.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed) this.processLine(trimmed);
+        for (const line of decoded.split('\n')) {
+          const t = line.trim();
+          if (t) this.processLine(t);
         }
       }
 
-      // 播放中持续发射位置
       if (this.isPlaying) {
         this.emit('position', this.position);
       }
-    } catch {
-      // 静默
-    }
+    } catch { /* silent */ }
   }
 
-  /** 从历史日志中恢复播放状态 */
+  /** 从历史日志恢复状态 */
   private recoverState(lines: string[]): void {
-    const relevantLines: string[] = [];
+    const relevant: string[] = [];
     let foundExit = false;
 
-    // 倒序查找，直到找到 EXIT（表示软件曾退出过）
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
-      if (line.includes('【app】,{"actionId":"exitApp"}')) {
-        foundExit = true;
-        break;
-      }
+      if (line.includes('【app】,{"actionId":"exitApp"}')) { foundExit = true; break; }
       if (
         line.includes('【playing】,"playOneTrackInPlayingList"') ||
         line.includes('【playing】,"checkPlayPrivilege"') ||
         line.includes('【playing】,"setPlayingPosition"') ||
-        line.includes('【playing】,"native播放state"')
+        line.includes('【playing】,"native播放state"') ||
+        line.includes('【playing】,"native播放资源load完成，开始播放"')
       ) {
-        relevantLines.unshift(line);
+        relevant.unshift(line);
       }
     }
 
-    if (foundExit) return; // 上次启动了但已退出，从零开始
+    if (foundExit) return;
 
-    // 按时间顺序回放事件
-    let songId = -1;
-    let trackName = '';
-    let artist = '';
-    let album = '';
-    let duration = 0;
-    let playing = false;
-    let position = 0;
-    let relativeTime = 0;
-    let lastEventTime = Date.now();
+    let songId = -1, trackName = '', artist = '', album = '', duration = 0;
+    let playing = false, position = 0, relativeTime = 0;
 
-    for (const line of relevantLines) {
-      const header = this.parseHeader(line);
-      if (header) lastEventTime = header.timestamp;
-
-      if (line.includes('"playOneTrackInPlayingList"')) {
-        const data = this.extractJson(line);
-        if (data) {
-          songId = +data.id;
-          trackName = data.track?.name || '';
-          artist = data.track?.artists?.map((a: {name: string}) => a.name).join('/') || '';
-          album = data.track?.album?.name || '';
-          duration = (data.track?.duration || 0) / 1000;
-          playing = true;
-          position = 0;
-          relativeTime = Date.now();
-        }
-      } else if (line.includes('"checkPlayPrivilege"')) {
-        const data = this.extractJson(line);
-        if (data) {
-          songId = +data.id;
-          trackName = data.name || '';
-          artist = data.artists?.map((a: {name: string}) => a.name).join('/') || '';
-          album = data.album?.name || '';
-          duration = (data.duration || 0) / 1000;
-          playing = true;
-          position = 0;
-          relativeTime = Date.now();
-        }
-      } else if (line.includes('"setPlayingPosition"')) {
-        const m = line.match(/"setPlayingPosition",(\d+(?:\.\d+)?)/);
-        if (m) {
-          position = +m[1];
-          if (playing) {
-            relativeTime = Date.now() - position * 1000;
-          }
-        }
-      } else if (line.includes('"native播放state"')) {
-        const m = line.match(/"native播放state",(\d+)/);
-        if (m) {
-          const newPlaying = m[1] === '1';
-          if (newPlaying && !playing) {
-            relativeTime = Date.now() - position * 1000;
-          } else if (!newPlaying && playing) {
-            position = (Date.now() - relativeTime) / 1000;
-          }
-          playing = newPlaying;
-        }
-      }
+    for (const line of relevant) {
+      this.applyLine(line, (sid, info) => {
+        songId = sid; trackName = info?.name || ''; artist = info?.artists || '';
+        album = info?.album || ''; duration = info?.duration || 0;
+        playing = true; position = 0; relativeTime = Date.now();
+      }, (pos) => {
+        position = pos;
+        if (playing) relativeTime = Date.now() - pos * 1000;
+      }, (newPlaying) => {
+        if (newPlaying && !playing) relativeTime = Date.now() - position * 1000;
+        else if (!newPlaying && playing) position = (Date.now() - relativeTime) / 1000;
+        playing = newPlaying;
+      });
     }
 
     this.currentSongId = songId;
@@ -228,77 +172,153 @@ export class NeteaseElogReader extends EventEmitter {
     this.isPlaying = playing;
     this.lastPosition = position;
     this.relativeTime = relativeTime;
-    this.lastEventTime = lastEventTime;
 
     if (songId !== -1) {
       console.log(`[Elog] Recovered: ${artist} - ${trackName}, playing=${playing}, pos=${this.position.toFixed(1)}s`);
     }
   }
 
-  /** 处理一行新日志 */
+  /** 处理新日志行 */
   private processLine(line: string): void {
     if (!line || !line.includes('【playing】')) return;
 
-    const header = this.parseHeader(line);
     const now = Date.now();
-    const eventTime = header ? header.timestamp : now;
 
-    // setPlayingPosition — 用户拖动进度
-    if (line.includes('"setPlayingPosition"')) {
-      const m = line.match(/"setPlayingPosition",(\d+(?:\.\d+)?)/);
-      if (m) {
-        this.lastPosition = +m[1];
-        if (this.isPlaying) {
-          this.relativeTime = now - this.lastPosition * 1000;
-        }
-        this.lastEventTime = eventTime;
-        this.emit('position', this.position);
-      }
-      return;
-    }
-
-    // native播放state — 播放/暂停 (1=play, 2=pause)
-    if (line.includes('"native播放state"')) {
-      const m = line.match(/"native播放state",(\d+)/);
-      if (m) {
-        const newPlaying = m[1] === '1';
-        if (newPlaying && !this.isPlaying) {
-          // 恢复播放
-          this.relativeTime = now - this.lastPosition * 1000;
-        } else if (!newPlaying && this.isPlaying) {
-          // 暂停
-          this.lastPosition = (now - this.relativeTime) / 1000;
-        }
-        this.isPlaying = newPlaying;
-        this.lastEventTime = eventTime;
-        this.emit('status', this.isPlaying);
-      }
-      return;
-    }
-
-    // playOneTrackInPlayingList / checkPlayPrivilege — 切歌
-    if (line.includes('"playOneTrackInPlayingList"') || line.includes('"checkPlayPrivilege"')) {
+    // 缓存 track info (checkPlayPrivilege / playOneTrackInPlayingList)
+    if (line.includes('"checkPlayPrivilege"') || line.includes('"playOneTrackInPlayingList"')) {
       const data = this.extractJson(line);
-      if (!data) return;
+      if (data) {
+        const id = +(data.id || data.track?.id || 0);
+        if (id > 0) {
+          this.trackCache.set(id, {
+            name: data.track?.name || data.name || '',
+            artists: (data.track?.artists || data.artists || []).map((a: {name: string}) => a.name).join('/'),
+            album: data.track?.album?.name || data.album?.name || '',
+            duration: (data.track?.duration || data.duration || 0) / 1000,
+          });
+        }
+      }
+    }
 
-      const newId = +data.id || +data.track?.id || -1;
-      if (newId === this.currentSongId) return; // 同一首歌，忽略
+    this.applyLine(line, (newId, info) => {
+      if (newId === this.currentSongId) return;
 
       this.currentSongId = newId;
-      this.currentTrackName = data.track?.name || data.name || '';
-      this.currentArtist = (data.track?.artists || data.artists || [])
-        .map((a: {name: string}) => a.name).join('/');
-      this.currentAlbum = data.track?.album?.name || data.album?.name || '';
-      this.currentDuration = (data.track?.duration || data.duration || 0) / 1000;
+      this.currentTrackName = info?.name || '';
+      this.currentArtist = info?.artists || '';
+      this.currentAlbum = info?.album || '';
+      this.currentDuration = info?.duration || 0;
       this.isPlaying = true;
       this.lastPosition = 0;
       this.relativeTime = now;
-      this.lastEventTime = eventTime;
 
-      const info = this.trackInfo;
-      if (info) this.emit('trackChange', info);
+      const ti = this.trackInfo;
+      if (ti) {
+        console.log('[Elog] Track change:', ti.artist, '-', ti.title);
+        this.emit('trackChange', ti);
+      }
+    }, (pos) => {
+      this.lastPosition = pos;
+      if (this.isPlaying) this.relativeTime = now - pos * 1000;
+      this.emit('position', this.position);
+    }, (newPlaying) => {
+      if (newPlaying && !this.isPlaying) this.relativeTime = now - this.lastPosition * 1000;
+      else if (!newPlaying && this.isPlaying) this.lastPosition = (now - this.relativeTime) / 1000;
+      this.isPlaying = newPlaying;
+      this.emit('status', this.isPlaying);
+    });
+  }
+
+  /** 统一的事件应用逻辑 */
+  private applyLine(
+    line: string,
+    onTrack: (songId: number, info: TrackCache | null) => void,
+    onSeek: (pos: number) => void,
+    onState: (playing: boolean) => void,
+  ): void {
+    // playOneTrackInPlayingList / checkPlayPrivilege → 切歌（有完整 track info）
+    if (line.includes('"playOneTrackInPlayingList"') || line.includes('"checkPlayPrivilege"')) {
+      const data = this.extractJson(line);
+      if (data) {
+        const id = +(data.id || data.track?.id || 0);
+        if (id > 0) {
+          onTrack(id, {
+            name: (data.track || data).name || '',
+            artists: ((data.track || data).artists || []).map((a: {name: string}) => a.name).join('/'),
+            album: ((data.track || data).album || {}).name || '',
+            duration: ((data.track || data).duration || 0) / 1000,
+          });
+        }
+      }
       return;
     }
+
+    // native播放资源load完成，开始播放 → 切歌（仅 songId，从缓存查 track info）
+    if (line.includes('"native播放资源load完成，开始播放"')) {
+      const data = this.extractJson(line);
+      if (data?.songId) {
+        const sid = +data.songId;
+        const cached = this.trackCache.get(sid);
+        if (sid !== this.currentSongId) {
+          if (!cached) {
+            // 缓存未命中 → 异步查 API，同步先切
+            console.log('[Elog] Cache miss for', sid, '- fetching from API');
+            this.fetchTrackInfo(sid);
+          }
+          onTrack(sid, cached || null);
+        }
+      }
+      return;
+    }
+
+    // setPlayingPosition → 拖动进度
+    if (line.includes('"setPlayingPosition"')) {
+      const m = line.match(/"setPlayingPosition",(\d+(?:\.\d+)?)/);
+      if (m) onSeek(+m[1]);
+      return;
+    }
+
+    // native播放state → 播放/暂停
+    if (line.includes('"native播放state"')) {
+      const m = line.match(/"native播放state",(\d+)/);
+      if (m) onState(m[1] === '1');
+      return;
+    }
+  }
+
+  /** 通过 NetEase API 获取歌曲信息 */
+  private fetchTrackInfo(songId: number): void {
+    const url = `https://music.163.com/api/song/detail?ids=%5B${songId}%5D`;
+    https.get(url, { timeout: 5000, headers: { 'Referer': 'https://music.163.com/' } }, (res) => {
+      let body = '';
+      res.on('data', (d: Buffer) => body += d);
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(body);
+          const song = j?.songs?.[0];
+          if (song) {
+            this.trackCache.set(songId, {
+              name: song.name || '',
+              artists: (song.ar || []).map((a: {name: string}) => a.name).join('/'),
+              album: song.al?.name || '',
+              duration: (song.dt || 0) / 1000,
+            });
+            // 如果当前正在播放这首歌，补充信息
+            if (this.currentSongId === songId && !this.currentTrackName) {
+              this.currentTrackName = song.name || '';
+              this.currentArtist = (song.ar || []).map((a: {name: string}) => a.name).join('/');
+              this.currentAlbum = song.al?.name || '';
+              this.currentDuration = (song.dt || 0) / 1000;
+              const ti = this.trackInfo;
+              if (ti) {
+                console.log('[Elog] Track info filled from API:', ti.artist, '-', ti.title);
+                this.emit('trackChange', ti);
+              }
+            }
+          }
+        } catch { /* silent */ }
+      });
+    }).on('error', () => {});
   }
 
   /** 解码 elog 字节 */
@@ -306,46 +326,21 @@ export class NeteaseElogReader extends EventEmitter {
     const bytesArr = Array.from(dataArray);
     const decodedBytes = bytesArr.map((byte) => {
       const hexDigit = (Math.floor(byte / 16) ^ ((byte % 16) + 8)) % 16;
-      return (
-        hexDigit * 16 +
-        Math.floor(byte / 64) * 4 +
-        (~Math.floor(byte / 16) & 3)
-      );
+      return hexDigit * 16 + Math.floor(byte / 64) * 4 + (~Math.floor(byte / 16) & 3);
     });
-
     let decodedBuf = new Uint8Array(decodedBytes);
     while (decodedBuf.length > 0) {
-      try {
-        return new TextDecoder('utf-8').decode(decodedBuf);
-      } catch {
-        decodedBuf = decodedBuf.slice(1);
-      }
+      try { return new TextDecoder('utf-8').decode(decodedBuf); }
+      catch { decodedBuf = decodedBuf.slice(1); }
     }
     return '';
   }
 
-  /** 提取日志行中的 JSON */
   private extractJson(line: string): Record<string, unknown> | null {
     const match = line.match(/\{.*\}/);
     if (!match) return null;
-    try {
-      return JSON.parse(match[0]) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(match[0]) as Record<string, unknown>; } catch { return null; }
   }
 
-  /** 解析日志头 */
-  private parseHeader(line: string): { timestamp: number } | null {
-    const match = line.match(/\[(\d+):\d+\/(\d+):INFO/);
-    if (!match) return null;
-    // timestamp = startup_time (ms since boot) + boot_time
-    const startupMs = parseInt(match[2], 10);
-    const bootTime = Date.now() - (os.uptime() * 1000);
-    return { timestamp: bootTime + startupMs };
-  }
-
-  dispose(): void {
-    this.stop();
-  }
+  dispose(): void { this.stop(); }
 }
