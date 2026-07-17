@@ -58,7 +58,7 @@
         },
         "lyrics.pollingInterval": {
           "type": "number",
-          "default": 500,
+          "default": 300,
           "minimum": 200,
           "maximum": 2000,
           "description": "SMTC 检测间隔（毫秒，长驻进程内部间隔）"

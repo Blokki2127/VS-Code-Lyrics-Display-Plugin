@@ -127,7 +127,7 @@ export class SmtcReader extends EventEmitter {
           if (this.psProcess === null || this.psProcess.killed) {
             this.launch();
           }
-        }, 5000);
+        }, 3000);
       }
     });
   }

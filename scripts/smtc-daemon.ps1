@@ -25,7 +25,7 @@ function Await($op, $type) {
 
 $lastHash = ""
 $lastPos = -1
-$interval = 500
+$interval = 300
 if ($args.Count -gt 0) { $v = [int]$args[0]; if ($v -ge 200 -and $v -le 2000) { $interval = $v } }
 
 while ($true) {

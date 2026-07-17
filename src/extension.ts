@@ -24,11 +24,43 @@ export function activate(context: vscode.ExtensionContext) {
   const lyricsPanel = new LyricsPanel();
   const statusBar = new StatusBarDisplay();
 
+  // 本地计时器（SMTC 不提供 playlist position）
+  let trackStartTime = 0;
+  let trackStartPosition = 0;
+  let trackDuration = 0;
+  let isPlaying = false;
+
+  const positionTimer = {
+    _timer: null as ReturnType<typeof setInterval> | null,
+    start() {
+      this.stop();
+      trackStartTime = Date.now();
+      this._timer = setInterval(() => {
+        if (!isPlaying) return;
+        const elapsed = (Date.now() - trackStartTime) / 1000;
+        const position = trackStartPosition + elapsed;
+        if (trackDuration > 0 && position >= trackDuration) {
+          this.stop();
+          return;
+        }
+        lyricsPanel.updatePosition(position);
+      }, 500);
+    },
+    stop() {
+      if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    }
+  };
+
   // ── SMTC 事件处理 ──
 
   // 曲目变化 → 获取歌词 → 更新面板
   smtcReader.on('trackChange', async (track: TrackInfo) => {
     logInfo(`曲目变化: ${track.artist} - ${track.title} [${track.sourceApp}]`);
+
+    // 更新播放状态
+    isPlaying = track.playbackStatus === 'Playing';
+    trackStartPosition = track.position;
+    trackDuration = track.duration;
 
     // 更新状态栏
     statusBar.update(track);
@@ -39,28 +71,41 @@ export function activate(context: vscode.ExtensionContext) {
     // 获取歌词
     const result = await fetcher.fetchLyrics(track);
 
-    // 获取翻译（如开启）
-    if (result && getConfig<boolean>('lyrics.enableTranslation', true)) {
-      // 网易云内建翻译已在 fetchLyrics 中获取
-      // 这里做额外翻译补充
-    }
-
     // 音译处理
     if (result) {
+      // 从 LRC 中提取真实时长（最后一行时间戳）
+      if (result.lrcLines && result.lrcLines.length > 0) {
+        const lastLine = result.lrcLines[result.lrcLines.length - 1];
+        if (lastLine.time > trackDuration) {
+          trackDuration = lastLine.time;
+        }
+      }
       const enriched = await translator.enrich(track, result);
       lyricsPanel.update(track, enriched);
     } else {
       lyricsPanel.update(track, null);
     }
+
+    // 启动本地计时器
+    if (isPlaying) {
+      positionTimer.start();
+    }
   });
 
-  // 播放位置更新 → 仅更新当前句标记（高频）
+  // SMTC 位置更新（备用：部分播放器支持）
   smtcReader.on('positionChange', (position: number) => {
+    // 用 SMTC 位置校准本地计时器
+    if (Math.abs(position - trackStartPosition) > 1) {
+      trackStartTime = Date.now();
+      trackStartPosition = position;
+    }
     lyricsPanel.updatePosition(position);
   });
 
-  // 无媒体 → 隐藏状态栏
+  // 无媒体 → 隐藏状态栏，停止计时
   smtcReader.on('noMedia', () => {
+    isPlaying = false;
+    positionTimer.stop();
     statusBar.update(null);
   });
 
@@ -98,5 +143,6 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  positionTimer.stop();
   logInfo('插件已停用');
 }
