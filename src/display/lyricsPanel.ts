@@ -232,6 +232,7 @@ export class LyricsPanel {
 
   /** 构建歌词行 HTML */
   private buildLinesHtml(): string {
+    const style = getStyleConfig();
     if (!this.currentLyrics) {
       return `<div class="no-lyrics">
         <p>🎵 暂无歌词</p>
@@ -262,7 +263,7 @@ export class LyricsPanel {
         translationHtml = `
           <div style="margin-top:24px;padding-top:16px;border-top:1px dashed var(--vscode-panel-border);">
             <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px;">📝 翻译</p>
-            <pre style="font-family:inherit;font-size:${this.getStyleConfig().translationFontSize}px;color:${this.getStyleConfig().translationColor || 'var(--vscode-descriptionForeground)'};white-space:pre-wrap;line-height:1.8;margin:0;">${this.escapeHtml(transText)}</pre>
+            <pre style="font-family:inherit;font-size:${style.translationFontSize}px;color:${style.translationColor || 'var(--vscode-descriptionForeground)'};white-space:pre-wrap;line-height:1.8;margin:0;">${this.escapeHtml(transText)}</pre>
           </div>`;
       }
     }
