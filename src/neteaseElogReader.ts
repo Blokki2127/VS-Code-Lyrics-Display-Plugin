@@ -184,22 +184,6 @@ export class NeteaseElogReader extends EventEmitter {
 
     const now = Date.now();
 
-    // 缓存 track info (checkPlayPrivilege / playOneTrackInPlayingList)
-    if (line.includes('"checkPlayPrivilege"') || line.includes('"playOneTrackInPlayingList"')) {
-      const data = this.extractJson(line);
-      if (data) {
-        const id = +(data.id || data.track?.id || 0);
-        if (id > 0) {
-          this.trackCache.set(id, {
-            name: data.track?.name || data.name || '',
-            artists: (data.track?.artists || data.artists || []).map((a: {name: string}) => a.name).join('/'),
-            album: data.track?.album?.name || data.album?.name || '',
-            duration: (data.track?.duration || data.duration || 0) / 1000,
-          });
-        }
-      }
-    }
-
     this.applyLine(line, (newId, info) => {
       if (newId === this.currentSongId) return;
 
@@ -236,18 +220,20 @@ export class NeteaseElogReader extends EventEmitter {
     onSeek: (pos: number) => void,
     onState: (playing: boolean) => void,
   ): void {
-    // playOneTrackInPlayingList / checkPlayPrivilege → 切歌（有完整 track info）
+    // playOneTrackInPlayingList / checkPlayPrivilege → 切歌 + 缓存 track info
     if (line.includes('"playOneTrackInPlayingList"') || line.includes('"checkPlayPrivilege"')) {
       const data = this.extractJson(line);
       if (data) {
         const id = +(data.id || data.track?.id || 0);
         if (id > 0) {
-          onTrack(id, {
+          const info: TrackCache = {
             name: (data.track || data).name || '',
             artists: ((data.track || data).artists || []).map((a: {name: string}) => a.name).join('/'),
             album: ((data.track || data).album || {}).name || '',
             duration: ((data.track || data).duration || 0) / 1000,
-          });
+          };
+          this.trackCache.set(id, info);  // 填充缓存
+          onTrack(id, info);
         }
       }
       return;
