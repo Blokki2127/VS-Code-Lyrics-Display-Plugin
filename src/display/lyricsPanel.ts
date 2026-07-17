@@ -19,13 +19,6 @@ export class LyricsPanel {
   private translation: string = '';
   private transliteration: string = '';
   private currentLineIndex: number = -1;
-  private _onSeek: ((position: number) => void) | null = null;
-
-  /** 注册 seek 回调（用户点击歌词行时触发） */
-  onSeek(callback: (position: number) => void): void {
-    this._onSeek = callback;
-  }
-
   /** 创建或显示面板 */
   createOrShow(): void {
     if (this.panel) {
@@ -46,13 +39,6 @@ export class LyricsPanel {
 
     this.panel.onDidDispose(() => {
       this.panel = null;
-    });
-
-    // 监听 webview 消息（点击歌词行同步）
-    this.panel.webview.onDidReceiveMessage((msg) => {
-      if (msg.type === 'seekTo' && typeof msg.position === 'number') {
-        this._onSeek?.(msg.position);
-      }
     });
 
     // 显示等待状态（在检测到曲目之前）
@@ -211,17 +197,6 @@ export class LyricsPanel {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }
-    });
-    // 点击歌词行 → 通知扩展同步到此位置
-    document.querySelectorAll('.line').forEach(function(el) {
-      el.addEventListener('click', function() {
-        var time = parseFloat(this.getAttribute('data-time'));
-        if (!isNaN(time)) {
-          vscode.postMessage({ type: 'seekTo', position: time });
-        }
-      });
-      el.style.cursor = 'pointer';
-      el.title = '点击同步到此句';
     });
   </script>
 </body>
