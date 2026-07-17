@@ -24,6 +24,14 @@ export function activate(context: vscode.ExtensionContext) {
   const lyricsPanel = new LyricsPanel();
   const statusBar = new StatusBarDisplay();
 
+  // 用户点击歌词行 → 同步计时器到该位置
+  lyricsPanel.onSeek((position: number) => {
+    trackStartTime = Date.now();
+    trackStartPosition = position;
+    lyricsPanel.updatePosition(position);
+    logInfo(`手动同步到 ${position.toFixed(1)}s`);
+  });
+
   // 本地计时器（SMTC 不提供 playlist position）
   let trackStartTime = 0;
   let trackStartPosition = 0;
