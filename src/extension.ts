@@ -53,13 +53,20 @@ export function activate(context: vscode.ExtensionContext) {
 
   // ── SMTC 事件处理 ──
 
+  // 当前曲目标识（用于防止异步竞态）
+  let currentTrackId = '';
+
   // 曲目变化 → 获取歌词 → 更新面板
   smtcReader.on('trackChange', async (track: TrackInfo) => {
+    // 标记当前曲目，用于异步回调中检查是否仍是同一首歌
+    const trackId = `${track.artist}|${track.title}`;
+    currentTrackId = trackId;
     logInfo(`曲目变化: ${track.artist} - ${track.title} [${track.sourceApp}]`);
 
-    // 更新播放状态
+    // 重置计时器
+    positionTimer.stop();
     isPlaying = track.playbackStatus === 'Playing';
-    trackStartPosition = track.position;
+    trackStartPosition = 0;  // 新歌从 0 开始计时
     trackDuration = track.duration;
 
     // 更新状态栏
@@ -70,6 +77,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 获取歌词
     const result = await fetcher.fetchLyrics(track);
+
+    // 检查是否已切换到其他曲目（防止异步竞态）
+    if (currentTrackId !== trackId) {
+      logInfo(`跳过过期歌词: ${track.artist} - ${track.title}`);
+      return;
+    }
 
     // 音译处理
     if (result) {

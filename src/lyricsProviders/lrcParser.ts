@@ -44,13 +44,39 @@ export function findCurrentLineIndex(lines: LrcLine[], positionSec: number): num
 }
 
 /**
- * 提取纯文本（去除所有 LRC 时间戳标签）
+ * 提取纯文本（去除所有 LRC 时间戳标签和 ID 标签）
+ * 支持 [mm:ss.xx], [mm:ss.xxx], [ti:...], [ar:...], [al:...], [by:...], [offset:...], [kana:...] 等
  */
 export function toPlainText(lrc: string): string {
   return lrc
     .split('\n')
-    .map(line => line.replace(/^\[\d{2}:\d{2}[.:]\d{2,3}\]\s*/, ''))
+    .map(line => {
+      // 移除时间戳 [mm:ss.xx] 或 [mm:ss.xxx]
+      let cleaned = line.replace(/^\[\d{2}:\d{2}[.:]\d{2,3}\]\s*/, '');
+      // 移除 ID 标签 [xxx:...]
+      cleaned = cleaned.replace(/^\[(ti|ar|al|by|offset|kana|length|re|ve|la|to|tool|encoding):.*?\]\s*/i, '');
+      return cleaned;
+    })
     .filter(line => line.trim().length > 0)
+    .join('\n');
+}
+
+/**
+ * 过滤掉 ID 标签行和时间戳空行，仅保留有歌词内容的行
+ */
+export function filterLyricLines(lrc: string): string {
+  return lrc
+    .split('\n')
+    .filter(line => {
+      // 过滤掉纯 ID 标签行
+      if (/^\[(ti|ar|al|by|offset|kana|length|re|ve|la|to|tool|encoding):/.test(line.trim())) {
+        return false;
+      }
+      // 过滤掉纯时间戳行（无歌词内容）
+      const text = line.replace(/^\[\d{2}:\d{2}[.:]\d{2,3}\]\s*/, '').trim();
+      return text.length > 0;
+    })
+    .map(line => line.replace(/^\[\d{2}:\d{2}[.:]\d{2,3}\]\s*/, '').trim())
     .join('\n');
 }
 
