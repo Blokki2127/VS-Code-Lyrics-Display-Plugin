@@ -72,6 +72,12 @@ npm run watch   # 开发模式（自动构建 + 监听）
 4. 歌词文本解析后渲染到 Webview 面板，当前句匹配播放位置高亮
 5. 翻译和音译在获取歌词后一并处理
 
+## 致谢
+
+- [MyLifeTracker](https://github.com/StalinDev54/MyLifeTracker) — 网易云 elog 事件日志解析方案，实现了精确的播放进度追踪
+- [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi) — 网易云音乐 API 参考
+- [LRCLIB](https://lrclib.net) — 开源歌词数据库
+
 ## 许可
 
 MIT License
