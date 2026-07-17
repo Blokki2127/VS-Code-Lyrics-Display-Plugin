@@ -241,34 +241,20 @@ export class LyricsPanel {
     }
 
     const plainLines = this.currentLyrics.split('\n');
+    const transLines = this.translation ? this.translation.split('\n') : [];
     const romanLines = this.transliteration ? this.transliteration.split('\n') : [];
 
-    // 歌词行（按索引匹配音译）
-    const lyricHtml = plainLines.map((line, i) => {
+    // 歌词行（翻译+音译在每行下方）
+    return plainLines.map((line, i) => {
       const isActive = i === this.currentLineIndex;
       const displayText = line.trim() || '&nbsp;';
-      // 获取该行 LRC 时间戳（用于点击同步）
       const lineTime = this.lrcLines[i]?.time ?? -1;
       return `<div class="line${isActive ? ' active' : ''}" data-index="${i}" data-time="${lineTime}">
         <p class="lyric-text">${this.escapeHtml(displayText)}</p>
         ${romanLines[i] ? `<p class="transliteration">${this.escapeHtml(romanLines[i])}</p>` : ''}
+        ${transLines[i] ? `<p class="translation">${this.escapeHtml(transLines[i])}</p>` : ''}
       </div>`;
     }).join('\n');
-
-    // 翻译作为独立块显示（不与原文逐行对齐）
-    let translationHtml = '';
-    if (this.translation) {
-      const transText = this.translation.trim();
-      if (transText) {
-        translationHtml = `
-          <div style="margin-top:24px;padding-top:16px;border-top:1px dashed var(--vscode-panel-border);">
-            <p style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px;">📝 翻译</p>
-            <pre style="font-family:inherit;font-size:${style.translationFontSize}px;color:${style.translationColor || 'var(--vscode-descriptionForeground)'};white-space:pre-wrap;line-height:1.8;margin:0;">${this.escapeHtml(transText)}</pre>
-          </div>`;
-      }
-    }
-
-    return lyricHtml + translationHtml;
   }
 
   /** 构建等待状态 HTML */

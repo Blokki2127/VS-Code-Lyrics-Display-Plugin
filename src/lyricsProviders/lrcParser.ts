@@ -44,7 +44,25 @@ export function findCurrentLineIndex(lines: LrcLine[], positionSec: number): num
 }
 
 /**
- * 提取纯文本（去除所有 LRC 时间戳标签和 ID 标签）
+ * 按行剥离时间戳和 ID 标签，保持行结构不变
+ * 用于翻译歌词：每行翻译对应一行原文，空行保留
+ */
+export function stripLyricTimestamps(lrc: string): string {
+  return lrc
+    .split('\n')
+    .map(line => {
+      // 跳过纯 ID 标签行（[ti:...], [ar:...], [by:...] 等），转为空行
+      if (/^\[(ti|ar|al|by|offset|kana|length|re|ve|la|to|tool|encoding):/i.test(line.trim())) {
+        return '';
+      }
+      // 剥离 [mm:ss.xx] 时间戳
+      return line.replace(/^\[\d{2}:\d{2}[.:]\d{2,3}\]\s*/, '').trim();
+    })
+    .join('\n');
+}
+
+/**
+ * 提取纯文本（去除所有 LRC 时间戳标签和 ID 标签，并过滤空行）
  * 支持 [mm:ss.xx], [mm:ss.xxx], [ti:...], [ar:...], [al:...], [by:...], [offset:...], [kana:...] 等
  */
 export function toPlainText(lrc: string): string {

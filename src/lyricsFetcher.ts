@@ -4,7 +4,7 @@ import { LrclibProvider } from './lyricsProviders/lrclibProvider.js';
 import { NeteaseProvider } from './lyricsProviders/neteaseProvider.js';
 import { QQMusicProvider } from './lyricsProviders/qqMusicProvider.js';
 import { LocalProvider } from './lyricsProviders/localProvider.js';
-import { parseLrc, isLrcFormat, toPlainText } from './lyricsProviders/lrcParser.js';
+import { parseLrc, isLrcFormat, toPlainText, stripLyricTimestamps } from './lyricsProviders/lrcParser.js';
 import { getConfig } from './utils/config.js';
 import { logInfo, logError } from './utils/logger.js';
 
@@ -90,7 +90,7 @@ export class LyricsFetcher {
       const result = await netease.searchWithTranslation(track);
       if (result) {
         const trans = result.tlyric
-          ? (isLrcFormat(result.tlyric) ? toPlainText(result.tlyric) : result.tlyric)
+          ? (isLrcFormat(result.tlyric) ? stripLyricTimestamps(result.tlyric) : result.tlyric)
           : undefined;
         return { rawLyrics: result.lyrics, translation: trans, providerName: netease.name };
       }
