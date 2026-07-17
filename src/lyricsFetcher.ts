@@ -46,30 +46,21 @@ export class LyricsFetcher {
       if (rawLyrics) providerName = 'local';
     }
 
+    let translation: string | undefined;
+
     // 3. 在线查找（如配置 online 或 both）
     if (!rawLyrics && (source === 'online' || source === 'both')) {
       const onlineProviderName = getConfig<string>('lyrics.onlineProvider', 'netease');
-      const provider = this.providers.get(onlineProviderName);
-      if (provider) {
-        rawLyrics = await provider.search(track);
-        if (rawLyrics) providerName = provider.name;
-      }
+      ({ rawLyrics, translation, providerName } = await this.tryProvider(onlineProviderName, track));
     }
 
     // 4. 降级：首选失败 → 逐一尝试其他在线源
     if (!rawLyrics) {
       const fallbackOrder = ['qqmusic', 'lrclib', 'netease'];
       for (const name of fallbackOrder) {
-        if (name === getConfig<string>('lyrics.onlineProvider', 'qqmusic')) continue; // 跳过已试的首选
-        const fb = this.providers.get(name);
-        if (fb) {
-          rawLyrics = await fb.search(track);
-          if (rawLyrics) {
-            providerName = fb.name;
-            logInfo(`降级到 ${fb.name} 成功`);
-            break;
-          }
-        }
+        if (name === getConfig<string>('lyrics.onlineProvider', 'netease')) continue;
+        ({ rawLyrics, translation, providerName } = await this.tryProvider(name, track));
+        if (rawLyrics) break;
       }
     }
 
@@ -79,26 +70,35 @@ export class LyricsFetcher {
     }
 
     // 5. 解析歌词
-    const result = this.parseLyrics(rawLyrics, providerName);
+    const result = this.parseLyrics(rawLyrics, providerName, translation);
     this.cache.set(cacheKey, result);
-    logInfo(`歌词已获取 [${providerName}]: ${track.artist} - ${track.title}`);
+    logInfo(`歌词已获取 [${providerName}]: ${track.artist} - ${track.title}${translation ? ' (含翻译)' : ''}`);
     return result;
   }
 
-  /** 获取翻译（仅网易云支持内建翻译） */
-  async fetchTranslation(track: TrackInfo): Promise<string | undefined> {
-    try {
-      const netease = this.providers.get('netease') as NeteaseProvider | undefined;
-      if (!netease) return undefined;
+  /** 尝试单个提供器，Netease 则同时获取翻译 */
+  private async tryProvider(name: string, track: TrackInfo): Promise<{
+    rawLyrics: string | null;
+    translation?: string;
+    providerName: string;
+  }> {
+    const provider = this.providers.get(name);
+    if (!provider) return { rawLyrics: null, providerName: 'none' };
 
+    if (name === 'netease') {
+      const netease = provider as NeteaseProvider;
       const result = await netease.searchWithTranslation(track);
-      if (result?.tlyric) {
-        return isLrcFormat(result.tlyric) ? toPlainText(result.tlyric) : result.tlyric;
+      if (result) {
+        const trans = result.tlyric
+          ? (isLrcFormat(result.tlyric) ? toPlainText(result.tlyric) : result.tlyric)
+          : undefined;
+        return { rawLyrics: result.lyrics, translation: trans, providerName: netease.name };
       }
-    } catch {
-      // 翻译获取失败，静默降级
+      return { rawLyrics: null, providerName: 'none' };
     }
-    return undefined;
+
+    const raw = await provider.search(track);
+    return { rawLyrics: raw, providerName: raw ? provider.name : 'none' };
   }
 
   /** 清除缓存 */
@@ -107,7 +107,7 @@ export class LyricsFetcher {
     logInfo('歌词缓存已清除');
   }
 
-  private parseLyrics(rawLyrics: string, source: string): LyricsResult {
+  private parseLyrics(rawLyrics: string, source: string, translation?: string): LyricsResult {
     let lyrics: string;
     let lrcLines: LrcLine[] | undefined;
 
@@ -119,7 +119,7 @@ export class LyricsFetcher {
       lrcLines = undefined;
     }
 
-    return { lyrics, lrcLines, source };
+    return { lyrics, lrcLines, source, translation };
   }
 
   private cacheKey(track: TrackInfo): string {

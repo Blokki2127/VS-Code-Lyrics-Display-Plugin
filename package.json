@@ -28,7 +28,7 @@
         "lyrics.onlineProvider": {
           "type": "string",
           "enum": ["lrclib", "netease", "qqmusic"],
-          "default": "qqmusic",
+          "default": "netease",
           "description": "在线歌词 API：LRCLIB（免费） / 网易云音乐 / QQ音乐"
         },
         "lyrics.neteaseApiUrl": {
