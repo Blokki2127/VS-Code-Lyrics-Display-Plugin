@@ -73,11 +73,20 @@ export function activate(context: vscode.ExtensionContext) {
     statusBar.update(null);
   });
 
-  // ── Elog：仅提供精确位置（不负责切歌检测）──
+  // ── Elog：精确位置 + 辅助切歌检测 ──
   elogReader.on('trackChange', (track: ElogTrackInfo) => {
-    // Elog 也检测到切歌 → 同步 isNetease，但不重复 handleTrackChange
-    // 因为 SMTC 已经会触发 handleTrackChange
     isNetease = true;
+    // Elog 检测到的切歌也触发处理（SMTC 可能延迟或未检测到）
+    // 构建 TrackInfo 兼容结构调用 handleTrackChange
+    handleTrackChange({
+      artist: track.artist,
+      title: track.title,
+      album: track.album,
+      duration: track.duration,
+      position: track.position,
+      playbackStatus: track.isPlaying ? 'Playing' : 'Paused',
+      sourceApp: 'cloudmusic.exe',
+    });
   });
 
   elogReader.on('position', (position: number) => {
