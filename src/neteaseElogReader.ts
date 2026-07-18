@@ -322,10 +322,10 @@ export class NeteaseElogReader extends EventEmitter {
     return '';
   }
 
-  private extractJson(line: string): Record<string, unknown> | null {
+  private extractJson(line: string): Record<string, any> | null {
     const match = line.match(/\{.*\}/);
     if (!match) return null;
-    try { return JSON.parse(match[0]) as Record<string, unknown>; } catch { return null; }
+    try { return JSON.parse(match[0]) as Record<string, any>; } catch { return null; }
   }
 
   dispose(): void { this.stop(); }

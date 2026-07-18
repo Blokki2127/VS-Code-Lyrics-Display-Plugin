@@ -6,3 +6,6 @@ out/
 
 # ===== ClaudeCode 项目数据 =====
 CLAUDE.md
+
+# ===== 本机编辑器配置 =====
+.vscode/settings.json

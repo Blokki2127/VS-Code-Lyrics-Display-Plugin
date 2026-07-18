@@ -4,9 +4,9 @@ import { LrclibProvider } from './lyricsProviders/lrclibProvider.js';
 import { NeteaseProvider } from './lyricsProviders/neteaseProvider.js';
 import { QQMusicProvider } from './lyricsProviders/qqMusicProvider.js';
 import { LocalProvider } from './lyricsProviders/localProvider.js';
-import { parseLrc, isLrcFormat, toPlainText, stripLyricTimestamps } from './lyricsProviders/lrcParser.js';
+import { parseLrc, isLrcFormat, stripLyricTimestamps } from './lyricsProviders/lrcParser.js';
 import { getConfig } from './utils/config.js';
-import { logInfo, logError } from './utils/logger.js';
+import { logInfo } from './utils/logger.js';
 
 /**
  * 歌词获取编排器
@@ -145,6 +145,3 @@ export class LyricsFetcher {
     return `${track.artist.toLowerCase().trim()}|${track.title.toLowerCase().trim()}`;
   }
 }
-
-// re-export NeteaseProvider for translation
-import { NeteaseProvider } from './lyricsProviders/neteaseProvider.js';

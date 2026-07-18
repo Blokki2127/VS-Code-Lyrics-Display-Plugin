@@ -1,4 +1,5 @@
 import * as https from 'https';
+import type { ClientRequest } from 'http';
 import type { TrackInfo } from '../types/index.js';
 import type { ILyricsProvider } from './provider.js';
 import { logInfo, logError } from '../utils/logger.js';
@@ -84,7 +85,7 @@ export class LrclibProvider implements ILyricsProvider {
         res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
         res.on('end', () => resolve(body));
       }).on('error', () => resolve(null))
-        .on('timeout', function(this: https.ClientRequest) { this.destroy(); resolve(null); });
+        .on('timeout', function(this: ClientRequest) { this.destroy(); resolve(null); });
     });
   }
 }
